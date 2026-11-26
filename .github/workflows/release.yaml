@@ -1,0 +1,170 @@
+name: Release
+
+# Publishes signed multi-arch images to GHCR and a GitHub release whenever
+# `version` in vaultwarden/config.yaml reaches main without a matching
+# v<version> tag. See RELEASING.md.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - vaultwarden/**
+      - .github/workflows/release.yaml
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  APP_DIR: vaultwarden
+  IMAGE_NAME: ha-vaultwarden
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.info.outputs.release }}
+      version: ${{ steps.info.outputs.version }}
+      name: ${{ steps.info.outputs.name }}
+      description: ${{ steps.info.outputs.description }}
+      architectures: ${{ steps.info.outputs.architectures }}
+      registry_prefix: ${{ steps.info.outputs.registry_prefix }}
+      build_matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Read app information
+        id: info
+        env:
+          REGISTRY_PREFIX: ghcr.io/${{ github.repository_owner }}
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install --quiet PyYAML==6.0.4
+          /tmp/venv/bin/python - <<'EOF'
+          import json, os, sys, yaml
+          cfg = yaml.safe_load(open(f"{os.environ['APP_DIR']}/config.yaml"))
+          prefix = os.environ["REGISTRY_PREFIX"].lower()
+          expected = f"{prefix}/{os.environ['IMAGE_NAME']}"
+          image = cfg.get("image")
+          if image and image != expected:
+              print(f"::error::config.yaml image is {image}, but this workflow publishes {expected}")
+              sys.exit(1)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"version={cfg['version']}\n")
+              out.write(f"name={cfg['name']}\n")
+              out.write(f"description={' '.join(str(cfg['description']).split())}\n")
+              out.write(f"architectures={json.dumps(cfg['arch'])}\n")
+              out.write(f"registry_prefix={prefix}\n")
+          EOF
+          version="$(/tmp/venv/bin/python -c "import yaml; print(yaml.safe_load(open('$APP_DIR/config.yaml'))['version'])")"
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "v${version} is already released; nothing to publish."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Releasing v${version}."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare build matrix
+        id: matrix
+        if: steps.info.outputs.release == 'true'
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          architectures: ${{ steps.info.outputs.architectures }}
+          image-name: ${{ env.IMAGE_NAME }}
+          registry-prefix: ${{ steps.info.outputs.registry_prefix }}
+
+  build:
+    name: Build ${{ matrix.arch }} image
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build and push image
+        uses: home-assistant/builder/actions/build-image@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          context: ./${{ env.APP_DIR }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          labels: |
+            io.hass.type=app
+            io.hass.name=${{ needs.prepare.outputs.name }}
+            io.hass.description=${{ needs.prepare.outputs.description }}
+            io.hass.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT AND AGPL-3.0-only
+          push: true
+          skip-existing: ${{ needs.prepare.outputs.version }}
+          version: ${{ needs.prepare.outputs.version }}
+
+  manifest:
+    name: Publish multi-arch image
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+    steps:
+      - name: Publish multi-arch manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@7412f0023ea9b6e58e8bb5059f1660f51376f49a # 2026.09.0
+        with:
+          architectures: ${{ needs.prepare.outputs.architectures }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.prepare.outputs.version }}
+            latest
+          registry-prefix: ${{ needs.prepare.outputs.registry_prefix }}
+          skip-existing: ${{ needs.prepare.outputs.version }}
+
+  github-release:
+    name: GitHub release
+    needs: [prepare, manifest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          IMAGE: ${{ needs.prepare.outputs.registry_prefix }}/${{ env.IMAGE_NAME }}
+        run: |
+          # Section of CHANGELOG.md under "## <version>", up to the next heading.
+          awk -v v="## ${VERSION}" '
+            $0 == v { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' "${APP_DIR}/CHANGELOG.md" > notes.md
+          {
+            echo
+            echo "**Image:** \`${IMAGE}:${VERSION}\` (amd64, aarch64), signed with Cosign."
+          } >> notes.md
+          gh release create "v${VERSION}" \
+            --target "${GITHUB_SHA}" \
+            --title "${VERSION}" \
+            --notes-file notes.md

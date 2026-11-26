@@ -1,0 +1,67 @@
+name: Vaultwarden
+version: "1.37.5"
+slug: vaultwarden
+description: >-
+  Vaultwarden, the lightweight Bitwarden-compatible server, with optional
+  Cloudflare Tunnel and Tailscale Serve/Funnel built in.
+url: https://github.com/grikomsn/ha-vaultwarden/tree/main/vaultwarden
+# Signed multi-arch image published by .github/workflows/release.yaml; the
+# Supervisor pulls the tag matching `version`. See RELEASING.md.
+image: ghcr.io/grikomsn/ha-vaultwarden
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+# The upstream image has no init system or S6; Docker's init (tini) reaps the
+# cloudflared and Tailscale helper processes.
+init: true
+timeout: 30
+# Vaultwarden keeps its data in /data, which is also where the Supervisor
+# mounts this app's private data folder: the vault (SQLite, RSA keys,
+# attachments, sends) survives updates and is included in backups.
+# SQLite must not be copied while it is being written to.
+backup: cold
+backup_exclude:
+  - "icon_cache/*"
+  - "tmp/*"
+  - "tailscale/logs/*"
+ports:
+  8080/tcp: null
+ports_description:
+  8080/tcp: >-
+    Plain HTTP vault. Leave disabled unless another proxy (for example the
+    Cloudflared app) needs to reach it through the host.
+watchdog: "http://[HOST]:[PORT:8080]/alive"
+options:
+  domain: ""
+  signups_allowed: true
+  log_level: info
+  cloudflare_tunnel_token: ""
+  tailscale: false
+  tailscale_hostname: vault
+  tailscale_funnel: false
+  env_vars: []
+schema:
+  domain: str
+  signups_allowed: bool
+  admin_token: password?
+  log_level: list(trace|debug|info|warn|error|off)
+  smtp_host: str?
+  smtp_port: port?
+  smtp_security: list(starttls|force_tls|off)?
+  smtp_username: str?
+  smtp_password: password?
+  smtp_from: email?
+  smtp_from_name: str?
+  push_installation_id: str?
+  push_installation_key: password?
+  push_region: list(us|eu)?
+  cloudflare_tunnel_token: password?
+  tailscale: bool
+  tailscale_auth_key: password?
+  tailscale_hostname: match(^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$)
+  tailscale_funnel: bool
+  env_vars:
+    - name: match(^[A-Za-z_][A-Za-z0-9_]*$)
+      value: str

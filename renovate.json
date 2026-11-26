@@ -1,0 +1,64 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests",
+    ":disableDependencyDashboard"
+  ],
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Keep the app version in lockstep with the Vaultwarden image tag",
+      "managerFilePatterns": ["/^vaultwarden/config\\.yaml$/"],
+      "matchStrings": ["version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)(?:\\.\\d+)?\""],
+      "depNameTemplate": "docker.io/vaultwarden/server",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "autoReplaceStringTemplate": "version: \"{{{newValue}}}\""
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "GitHub Actions: one grouped PR, merged automatically once CI passes",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions",
+      "automerge": true
+    },
+    {
+      "description": "Vaultwarden: Dockerfile tag + digest and config.yaml version in one PR",
+      "matchPackageNames": ["docker.io/vaultwarden/server"],
+      "groupName": "Vaultwarden",
+      "prBodyNotes": [
+        "Before merging: add a `## <new version>` section to `vaultwarden/CHANGELOG.md` (the version check fails until you do), and read the Vaultwarden release notes for config changes. See RELEASING.md."
+      ]
+    },
+    {
+      "description": "Vaultwarden in the Dockerfile: stay on the -alpine variant",
+      "matchManagers": ["dockerfile"],
+      "matchPackageNames": ["docker.io/vaultwarden/server"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<compatibility>alpine)$"
+    },
+    {
+      "description": "Tailscale, cloudflared and jq: one grouped PR; needs a packaging revision",
+      "matchPackageNames": [
+        "docker.io/tailscale/tailscale",
+        "docker.io/cloudflare/cloudflared",
+        "ghcr.io/jqlang/jq"
+      ],
+      "groupName": "Tailscale, cloudflared and jq",
+      "prBodyNotes": [
+        "Before merging: bump `version` in `vaultwarden/config.yaml` to the next packaging revision (the version check names it) and add a CHANGELOG entry. See RELEASING.md."
+      ]
+    },
+    {
+      "matchPackageNames": ["docker.io/tailscale/tailscale"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      "matchPackageNames": ["docker.io/cloudflare/cloudflared", "ghcr.io/jqlang/jq"],
+      "versioning": "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    }
+  ]
+}

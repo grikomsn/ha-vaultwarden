@@ -1,0 +1,78 @@
+configuration:
+  domain:
+    name: Domain
+    description: >-
+      Hostname clients use for the vault, for example vault.example.com
+      (Cloudflare) or vault.tail1234.ts.net (Tailscale). https:// is added
+      for you.
+  signups_allowed:
+    name: Allow sign-ups
+    description: Turn off after you have created your accounts, so nobody else can sign up.
+  admin_token:
+    name: Admin token
+    description: >-
+      Enables the admin panel at /admin. Use an Argon2 hash (see the docs);
+      a plain-text token also works. Leave empty to keep the panel off.
+  log_level:
+    name: Log level
+    description: debug and trace also show the Tailscale daemon's log.
+  smtp_host:
+    name: SMTP host
+  smtp_port:
+    name: SMTP port
+    description: Defaults to 465 for force_tls, 587 for starttls and 25 for off.
+  smtp_security:
+    name: SMTP security
+    description: >-
+      force_tls is implicit TLS (usually port 465), starttls upgrades a plain
+      connection (usually 587). Defaults to force_tls on port 465, otherwise
+      starttls.
+  smtp_username:
+    name: SMTP username
+  smtp_password:
+    name: SMTP password
+  smtp_from:
+    name: From address
+    description: Defaults to vaultwarden@<domain>. Must be allowed by your mail provider.
+  smtp_from_name:
+    name: From name
+    description: Defaults to Vaultwarden.
+  push_installation_id:
+    name: Push installation ID
+    description: >-
+      From https://bitwarden.com/host/. Turns on instant sync for the
+      Bitwarden mobile apps.
+  push_installation_key:
+    name: Push installation key
+    description: From https://bitwarden.com/host/. Treat it as a secret.
+  push_region:
+    name: Push region
+    description: The region you picked at bitwarden.com/host. Defaults to us.
+  cloudflare_tunnel_token:
+    name: Cloudflare Tunnel token
+    description: >-
+      Token of a remote-managed tunnel from the Cloudflare dashboard. Leave
+      empty to disable. Route your public hostname to http://localhost:8080.
+  tailscale:
+    name: Tailscale
+    description: Join your tailnet as a separate node and serve the vault over HTTPS.
+  tailscale_auth_key:
+    name: Tailscale auth key
+    description: >-
+      Optional. Without it, the Log tab shows a login URL on first start.
+      Only needed until the node is logged in.
+  tailscale_hostname:
+    name: Tailscale hostname
+    description: Node name, giving https://<name>.<tailnet>.ts.net.
+  tailscale_funnel:
+    name: Tailscale Funnel
+    description: >-
+      Also expose the vault to the public internet through Tailscale Funnel.
+      Off means tailnet devices only (Serve).
+  env_vars:
+    name: Extra environment variables
+    description: >-
+      Any other Vaultwarden setting, such as SIGNUPS_VERIFY or
+      ORG_CREATION_USERS. Applied last.
+network:
+  8080/tcp: Plain HTTP vault. Leave disabled unless another proxy needs to reach it through the host.

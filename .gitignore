@@ -1,0 +1,8 @@
+# Local test data (vault, keys, options.json with secrets)
+/data*/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite3*
+options.json
+.DS_Store
